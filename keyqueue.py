@@ -1,10 +1,12 @@
-import queue
+# import queue
+import multiprocessing as queue
 
 class Queue:
-    def __init__(self):
+    def __init__(self, id):
         self.queue = queue.Queue()
         self.next_key = ''
-        self.last_crc = -1
+        self.last_crc = 0
+        self.id = id
 
     def get(self):
         if self.next_key == '':
@@ -13,6 +15,7 @@ class Queue:
         return self.next_key
 
     def put(self, val):
+        # print("added key:", val)
         self.queue.put(val)
 
     def ack(self, crc):
@@ -24,11 +27,12 @@ class Queue:
             return False
 
     def empty(self):
-        return (self.next_key=='' and self.queue.empty())
+        is_empty = self.queue.empty()
+        return (self.next_key=='' and is_empty)
 
     def print_stack(self):
         tmp = [elem for elem in list(self.queue.queue)]
         if self.next_key != '':
             tmp = [self.next_key] + tmp
-        print(tmp)
+        print('stack:', tmp)
 

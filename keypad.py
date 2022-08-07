@@ -4,11 +4,12 @@ from utils import checkMessage, addParity, calcParity
 class Keypad:
     _keydict = {'0':0x00,'1':0x01,'2':0x02,'3':0x03,'4':0x04,'5':0x05,'6':0x06,'7':0x07,'8':0x08,'9':0x09,'A':0x0B,'B':0x0A,'ent':0x0C,'esc':0x0D,'*':0x0E,'#':0x0F}
     _screensize = (2,16)
+    _suppress = {'beep':1, 'backlight':1, 'poll':0, 'initial_poll':1, 'update':0}
 
     def __init__(self, device_id):
         self.PANEL_ID = 0x11
         self.DEVICE_ID = device_id
-        self.KEY_QUEUE = keyqueue.Queue()
+        self.KEY_QUEUE = keyqueue.Queue('keypad0')
         self.BACKLIGHT = False
         self.RESP_ALL_OK = bytearray([self.PANEL_ID, 0xFE])
         self.init_display()
@@ -17,6 +18,7 @@ class Keypad:
         self.SCREEN_SIZE = Keypad._screensize
 
         self.log('Starting keypad: {}'.format(hex(device_id)))
+        self.CRC = 0
 
     def init_display(self):
         self.SCREEN = [['' for y in range(self._screensize[1])] for x in range(self._screensize[0])]
@@ -37,8 +39,8 @@ class Keypad:
             resp = self.RESP_ALL_OK.copy()
             
             # ignore the poll
-            if bMessage[1] != 0x06:
-                self.log("message for keypad: {}".format(hex(self.DEVICE_ID)), False)
+            # if bMessage[1] != 0x06:
+                # self.log("message for keypad: {}".format(hex(self.DEVICE_ID)), False)
 
             if bMessage[1] == 0x00:                 # initial poll
                 resp = self.handle_initial_poll()
@@ -47,11 +49,26 @@ class Keypad:
             elif bMessage[1] == 0x0D:               # backlight
                 resp = self.backlight_set(bMessage[2]==0x01)
             elif bMessage[1] == 0x0B:               # button acknowledgement
-                resp = self.ack_button(bMessage[2])
+                self.CRC = bMessage[2]
+                resp = self.ack_button()
             elif bMessage[1] == 0x0C:               # beep
                 resp = self.beep_set(bMessage[2])
             elif bMessage[1] == 0x07:               # screen update
-                resp = self.screen_update(bMessage[3:-1])
+                # handle flags
+                flag = bMessage[2]
+                resp = self.RESP_ALL_OK.copy()
+
+                if flag & 0x10 != 0:                # we have a button to ack
+                    self.CRC = flag & 0x02          # toggle the CRC
+
+                    # print('upd: button ack')
+                    resp = self.ack_button()
+
+                if flag & 0x80 != 0:                # new update command                   
+                    self.screen_update(bMessage[3:-1])
+                # else:
+                    # print('update, duplicate')
+
             elif bMessage[1] == 0x06:              # check if all ok...
                 # self.log("Status check")
                 resp = self.RESP_ALL_OK.copy()
@@ -60,14 +77,15 @@ class Keypad:
 
             resp = addParity(resp)
 
-        if bMessage[1] != 0x06:
-            self.log('')
+        # if bMessage[1] != 0x06:
+            # self.log('')
         
         return resp
 
 
     def handle_initial_poll(self):
-        self.log('Poll message')
+        if not self._suppress['initial_poll']:
+            self.log('Poll message')
         resp = bytearray([self.PANEL_ID, 0xFF, 0x08, 0x00, 0x64])
         return resp
 
@@ -75,14 +93,16 @@ class Keypad:
         ## pass back the next key or 'ok'
         resp = bytearray([0x00])
         if self.KEY_QUEUE.empty():
-            resp = self.RESP_ALL_OK
+            resp = self.RESP_ALL_OK.copy()
         else:
             k = self._keydict[self.KEY_QUEUE.get()]
             self.log('sending key:{0}'.format(k))
             resp = bytearray([self.PANEL_ID, 0xF4])
             resp.append(k)
 
-        self.log('Activity poll')
+        # if not self._suppress['poll']:
+            # self.log('Activity poll, returning:', resp.hex())
+
         return resp
 
     def send_enter(self):
@@ -101,27 +121,30 @@ class Keypad:
 
     def backlight_set(self, isOn):
         self.BACKLIGHT = isOn
-        self.log("Backlight - {}".format(isOn))
+        if not self._suppress['backlight']:
+            self.log("Backlight - {}".format(isOn))
         resp = self.RESP_ALL_OK
         return resp
 
     def beep_set(self, state):
         if state == 0x01:
-            self.log("Beep - On")
+            if not self._suppress['beep']:
+                self.log("Beep - On")
         elif state == 0x03:
             self.log("Beep - Beeping")
         elif state == 0x00:
-            self.log("Beep - Off")
+            if not self._suppress['beep']:
+                self.log("Beep - Off")
         else:
             self.log("Beep - UNKNOWN")
 
         resp = self.RESP_ALL_OK
         return resp
 
-    def ack_button(self, crc):
+    def ack_button(self):
         # TODO: handle the wierd alternating CRC ack piece
         # https://richard.burtons.org/2019/03/09/honeywell-galaxy-keypad-cp038-rs485-protocol/
-        self.KEY_QUEUE.ack(crc)
+        self.KEY_QUEUE.ack(self.CRC)
         resp = self.handle_activity_poll()
         return resp
 
@@ -191,8 +214,9 @@ class Keypad:
         self.log('Update screen')
         self.display_screen()
 
-        resp = self.RESP_ALL_OK
-        return resp
+        # resp = self.RESP_ALL_OK
+        # resp = self.ack_button()            # if we get an update, can also respond to button
+        #return resp
 
 
     def display_screen(self):

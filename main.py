@@ -6,6 +6,16 @@ import keyqueue
 import keypad
 import utils
 
+import uvicorn
+from fastapi import FastAPI
+# from fastapi.logger import logger
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+app = FastAPI()
+
 ser=serial.rs485.RS485(port='/dev/ttyUSB0',
                        baudrate=9600,
                        bytesize = serial.EIGHTBITS,
@@ -14,6 +24,7 @@ ser=serial.rs485.RS485(port='/dev/ttyUSB0',
                        timeout=0.05)
 
 ser.flush()
+
 
 def serial_reader(serial_port, queue):
     ## Get bytes from serial port and add to queue
@@ -67,35 +78,61 @@ def command_processor(queue, my_keypad, my_ser):
     ## Process the queue
     k_id = hex(my_keypad.DEVICE_ID).replace('0x','')
     filter = [k_id,'11',10]
-    exclude = ['11 fe ba', '21 00 08 d3']
+    exclude = [
+        '11 fe ba',          # ack to panel
+        '21 00 08 d3', 
+        '10 06 c0',          # no clue!
+        '10 0d 01 c8',       # backlight
+        '10 07 81 43',       # prev message ack,    
+        '10 0c 00 00 00 c6', # beeps off
+        '10 19 01 d4',       # activity poll
+        '10 00 08 c2',       # initial device poll
+        '11 ff 08 00 64 28'  # initial device response 
+        ]
+
+    # TODO: i have no clue what the 10 06 c0 does
+
     # exclude = []
 
     while True:
         if not queue.empty():
             item = queue.get()
 
-            # if item[0:2] in filter:
-                # print(item)
+            if item[0:2] in filter and item not in exclude:
+                print('message:', item)
 
             if item[0:2] == k_id:
                 tmp = item[3:5]
-                if tmp != '06':
-                    print(item)
+
+                # if tmp != '06':
+                    # print('item:', item)
+
                 resp = my_keypad.handle_message(item)
-                if k_id != '10':
+                if k_id != '12':
                     # ser.write(resp)
 
                     if ser.out_waiting > 0:
                         print('Waiting to write {}'.format(ser.out_waiting))
 
-                    print('Wrote: {}'.format(resp))
+                    # ignore the ack
+                    ignore = [
+                        bytearray(b'\x11\xfe\xbau\xea\xd5\xab'),
+                        bytearray(b'\x11\xfe\xbau\xea\xd5\xabW\xae]\xbau\xea'),
+                        bytearray(b'\x11\xfe\xba'),
+                        bytearray(b'\x11\xfe\xbau'),
+                        bytearray(b'\x11\xfe\xbau\xea'),
+                        bytearray(b'\x11\xff\x08\x00d(')
+                    ]
+                    if resp not in ignore:
+                        print('Wrote: {}'.format(resp))
 
             # elif item[0:2] in filter and item not in exclude:
-            elif item not in exclude:
-                print(item)
+            # elif item not in exclude:
+            #     print('non-keypad', item)
 
-
-
+@app.get("/")
+def root():
+    my_keypad.send_keys('1234')
 
 if __name__=='__main__':  
     my_keypad = keypad.Keypad(0x10)
@@ -111,11 +148,13 @@ if __name__=='__main__':
     raw_processor_p.daemon = True
     raw_processor_p.start()  
 
-    command_processor_p = Process(target=command_processor, args = (pqueue_command,my_keypad, ser))
+    command_processor_p = Process(target=command_processor, args = (pqueue_command, my_keypad, ser))
     command_processor_p.daemon = True
     command_processor_p.start()
 
-    while True:
-        pass
+    uvicorn.run(app=app)
+
+#     while True:
+#         pass
 
     
