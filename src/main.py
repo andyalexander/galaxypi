@@ -111,8 +111,7 @@ def command_processor(queue, my_keypad, my_ser):
                 if k_id != '12':
                     # ser.write(resp)
 
-                    if ser.out_waiting > 0:
-                        print('Waiting to write {}'.format(ser.out_waiting))
+
 
                     # ignore the ack
                     ignore = [
@@ -124,7 +123,11 @@ def command_processor(queue, my_keypad, my_ser):
                         bytearray(b'\x11\xff\x08\x00d(')
                     ]
                     if resp not in ignore:
-                        print('Wrote: {}'.format(resp))
+                        # print('Wrote: {}'.format(resp))
+                        ser.write(resp)
+
+                        # if ser.out_waiting > 0:
+                            # print('Waiting to write {}'.format(ser.out_waiting))
 
             # elif item[0:2] in filter and item not in exclude:
             # elif item not in exclude:

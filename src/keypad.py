@@ -90,7 +90,7 @@ class Keypad:
         return resp
 
     def handle_activity_poll(self):
-        ## pass back the next key or 'ok'
+        ## pass back the next key or 'ok' message
         resp = bytearray([0x00])
         if self.KEY_QUEUE.empty():
             resp = self.RESP_ALL_OK.copy()

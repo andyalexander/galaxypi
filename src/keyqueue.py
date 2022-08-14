@@ -15,7 +15,7 @@ class Queue:
         return self.next_key
 
     def put(self, val):
-        # print("added key:", val)
+        print("added key:", val)
         self.queue.put(val)
 
     def ack(self, crc):
